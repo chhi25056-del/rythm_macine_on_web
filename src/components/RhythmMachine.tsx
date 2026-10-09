@@ -57,6 +57,7 @@ export default function RhythmMachine() {
   const [pattern, setPattern] = useState<Pattern>(createDefaultPattern);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentStep, setCurrentStep] = useState<number>(0);
+  const [bpm, setBpm] = useState<number>(120);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const noiseBufferRef = useRef<AudioBuffer | null>(null);
@@ -76,7 +77,10 @@ export default function RhythmMachine() {
     }
     return ctx;
   }, []);
-
+  /**
+   * ホワイトノイズバッファの生成・キャッシュ
+   * スネアやハイハットの合成音源として使用する1秒間のランダムノイズ波形を生成し保持します。
+   */
   const getNoiseBuffer = useCallback((ctx: AudioContext): AudioBuffer => {
     if (noiseBufferRef.current) return noiseBufferRef.current;
     const bufferSize = ctx.sampleRate * 1;
@@ -88,7 +92,11 @@ export default function RhythmMachine() {
     noiseBufferRef.current = buffer;
     return buffer;
   }, []);
-
+  /**
+   * キック（バスドラム）の発音
+   * サイン波オシレータの周波数を短時間で急降下（150Hz → 0.01Hz）させ、
+   * 音量を急激に減衰させることで、アタック感のある低音パンチを再現します。
+   */
   const playKick = useCallback((ctx: AudioContext, time: number) => {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -106,6 +114,12 @@ export default function RhythmMachine() {
     osc.stop(time + 0.15);
   }, []);
 
+  /**
+   * スネアドラムの発音
+   * 1. 太鼓の胴鳴り（三角波オシレータのピッチ急降下: 180Hz → 40Hz）
+   * 2. スナッピー（響き線）（ハイパスフィルタを通したホワイトノイズ）
+   * の2つの成分を同時に鳴らしてリアルなスネア音を合成します。
+   */
   const playSnare = useCallback((ctx: AudioContext, time: number) => {
     // トーン成分
     const osc = ctx.createOscillator();
@@ -142,6 +156,11 @@ export default function RhythmMachine() {
     noise.stop(time + 0.18);
   }, [getNoiseBuffer]);
 
+  /**
+   * クローズハイハットの発音
+   * ホワイトノイズに7.5kHz以上のハイパスフィルタを適用し、
+   * 0.05秒という極めて短いエンベロープで鋭く減衰させて「チッ」という短い金属音を作ります。
+   */
   const playClosedHiHat = useCallback((ctx: AudioContext, time: number) => {
     const noise = ctx.createBufferSource();
     noise.buffer = getNoiseBuffer(ctx);
@@ -162,6 +181,11 @@ export default function RhythmMachine() {
     noise.stop(time + 0.05);
   }, [getNoiseBuffer]);
 
+  /**
+   * オープンハイハットの発音
+   * ホワイトノイズに6.5kHzのハイパスフィルタを適用し、
+   * 0.35秒の長めのエンベロープで減衰させて「シャーン」という伸びのあるシンバル音を作ります。
+   */
   const playOpenHiHat = useCallback((ctx: AudioContext, time: number) => {
     const noise = ctx.createBufferSource();
     noise.buffer = getNoiseBuffer(ctx);
@@ -182,6 +206,10 @@ export default function RhythmMachine() {
     noise.stop(time + 0.35);
   }, [getNoiseBuffer]);
 
+  /**
+   * 指定した楽器のプレビュー単音発音
+   * ステップボタンをクリックしてONにした際に、どの楽器か確認できるよう即座に発音します。
+   */
   const triggerInstrument = useCallback(
     (trackId: TrackId) => {
       const ctx = getAudioContext();
@@ -204,6 +232,10 @@ export default function RhythmMachine() {
     [getAudioContext, playKick, playSnare, playClosedHiHat, playOpenHiHat]
   );
 
+  /**
+   * 指定ステップの全トラック発音
+   * シーケンサー再生中に、指定されたステップ位置（0〜15）でONになっている楽器を一括で同時発音します。
+   */
   const triggerStepSounds = useCallback(
     (stepIndex: number) => {
       const ctx = getAudioContext();
@@ -218,20 +250,41 @@ export default function RhythmMachine() {
     [getAudioContext, playKick, playSnare, playClosedHiHat, playOpenHiHat]
   );
 
+  /**
+   * BPM（1分あたりの拍数）から16分音符1ステップあたりの間隔（ミリ秒）を算出
+   * 1拍（4分音符） = 60,000ms / BPM
+   * 1ステップ（16分音符） = 1拍 / 4 = 15,000ms / BPM
+   * @param currentBpm 現在設定されているBPM値
+   * @returns 1ステップのインターバル時間（ミリ秒）
+   */
+  const getStepIntervalMs = (currentBpm: number): number => {
+    return 15000 / currentBpm;
+  };
+
+  /**
+   * シーケンサーの自動進行ループ（タイマー）
+   * isPlayingがtrueの間、設定されたBPMに応じた間隔（ミリ秒）でステップを1つずつ進め、音を鳴らします。
+   */
   useEffect(() => {
     if (!isPlaying) return;
 
+    const intervalMs = getStepIntervalMs(bpm);
     const interval = setInterval(() => {
       setCurrentStep((prev) => {
         const next = getNextStep(prev, 16);
         triggerStepSounds(next);
         return next;
       });
-    }, 125);
+    }, intervalMs);
 
     return () => clearInterval(interval);
-  }, [isPlaying, triggerStepSounds]);
+  }, [isPlaying, bpm, triggerStepSounds]);
 
+  /**
+   * 再生・停止のトグル切り替え
+   * PLAY開始時はステップ0の音を即座に鳴らして1ステップ目から再生開始。
+   * STOP時は再生を停止してステップ位置を0にリセットします。
+   */
   const togglePlay = () => {
     if (!isPlaying) {
       triggerStepSounds(0);
@@ -243,6 +296,22 @@ export default function RhythmMachine() {
     }
   };
 
+  /**
+   * BPMスライダー値変更ハンドラー
+   * スライダーの入力イベントを受け取り、変更後のBPM値を数値に変換してstateを更新します。
+   * 再生中の場合、useEffectの依存配列によって自動的に新しいテンポへ即座に更新されます。
+   * @param e input[type="range"]の変更イベント
+   */
+  const handleBpmChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setBpm(Number(e.target.value));
+  };
+
+  /**
+   * ステップボタンのON/OFF切り替え
+   * 指定トラックの指定ステップの状態を反転し、新たにONになった場合はプレビュー音を鳴らします。
+   * @param trackId 対象の楽器ID
+   * @param idx 対象のステップ番号（0〜15）
+   */
   const toggleStep = (trackId: TrackId, idx: number) => {
     setPattern((prev) => {
       const next = togglePatternStep(prev, trackId, idx);
@@ -255,20 +324,36 @@ export default function RhythmMachine() {
 
   return (
     <div className="flex flex-col items-center gap-6 p-4 sm:p-8 bg-zinc-900 text-white rounded-2xl shadow-2xl max-w-4xl mx-auto w-full border border-zinc-800">
-      <div className="flex items-center justify-between w-full">
+      <div className="flex flex-wrap items-center justify-between gap-4 w-full">
         <div>
           <h1 className="text-xl sm:text-2xl font-black tracking-wider text-zinc-100">Rythm Machine on web</h1>
-          <p className="text-xs text-zinc-400 mt-0.5">Kick, Snare, Closed Hi-Hat & Open Hi-Hat</p>
         </div>
-        <button
-          onClick={togglePlay}
-          className={`px-6 sm:px-8 py-2.5 sm:py-3 rounded-full font-bold tracking-wide transition-all shadow-md active:scale-95 text-xs sm:text-sm ${isPlaying
-            ? "bg-amber-500 hover:bg-amber-600 text-zinc-950 shadow-amber-500/20"
-            : "bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20"
-            }`}
-        >
-          {isPlaying ? "STOP" : "PLAY"}
-        </button>
+        <div className="flex items-center gap-3 sm:gap-6">
+          {/* BPMスライダーコントロール */}
+          <div className="flex items-center gap-2 sm:gap-3 bg-zinc-950/70 border border-zinc-800 px-3.5 py-1.5 sm:py-2 rounded-xl">
+            <span className="text-[11px] sm:text-xs font-bold text-zinc-400 tracking-wider">BPM</span>
+            <span className="font-mono font-bold text-sm sm:text-base text-amber-400 w-8 sm:w-9 text-right tabular-nums">{bpm}</span>
+            <input
+              type="range"
+              min="60"
+              max="200"
+              value={bpm}
+              onChange={handleBpmChange}
+              className="w-20 sm:w-28 accent-amber-400 cursor-pointer h-1.5 bg-zinc-800 rounded-lg appearance-none"
+              aria-label="BPM Slider"
+            />
+          </div>
+
+          <button
+            onClick={togglePlay}
+            className={`px-6 sm:px-8 py-2.5 sm:py-3 rounded-full font-bold tracking-wide transition-all shadow-md active:scale-95 text-xs sm:text-sm ${isPlaying
+              ? "bg-amber-500 hover:bg-amber-600 text-zinc-950 shadow-amber-500/20"
+              : "bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20"
+              }`}
+          >
+            {isPlaying ? "STOP" : "PLAY"}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col gap-3 w-full">
