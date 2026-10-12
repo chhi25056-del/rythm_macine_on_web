@@ -2,8 +2,8 @@ import RhythmMachine from "@/components/RhythmMachine";
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-4 sm:p-6 md:p-10">
-      <div className="w-full max-w-3xl">
+    <main className="h-screen w-screen overflow-hidden bg-zinc-950 flex flex-col items-center justify-center p-2 sm:p-4 md:p-6">
+      <div className="w-full max-w-5xl flex items-center justify-center">
         <RhythmMachine />
       </div>
     </main>
