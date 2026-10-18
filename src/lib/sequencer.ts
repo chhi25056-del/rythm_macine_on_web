@@ -80,7 +80,7 @@ export const TRACK_INFO: Record<TrackId, TrackInfo> = {
 };
 
 export const MIN_TRACK_LENGTH = 1;
-export const MAX_TRACK_LENGTH = 32;
+export const MAX_TRACK_LENGTH = MAX_STEPS;
 export const DEFAULT_TRACK_LENGTH = 16;
 
 export type TrackLengths = Record<TrackId, number>;

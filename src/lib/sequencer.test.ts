@@ -9,6 +9,7 @@ import {
   TRACK_INFO,
   TIME_SIGNATURE_CONFIGS,
   MAX_STEPS,
+  MAX_TRACK_LENGTH,
   createDefaultTrackLengths,
   getTrackStepIndex,
   isStepActiveForTrack,
@@ -200,6 +201,21 @@ describe("sequencer", () => {
       it("should return false when step is equal to or exceeds track length", () => {
         expect(isStepActiveForTrack(7, 7)).toBe(false);
         expect(isStepActiveForTrack(15, 7)).toBe(false);
+      });
+      it("should support up to MAX_STEPS for MAX_TRACK_LENGTH", () => {
+        expect(MAX_TRACK_LENGTH).toBe(MAX_STEPS);
+      });
+
+      it("should correctly activate steps in Bar 2 and Bar 4 when trackLength matches totalSteps", () => {
+        // 2小節 (32ステップ) の場合、Bar 2 (16..31) はすべてアクティブ
+        expect(isStepActiveForTrack(16, 32)).toBe(true);
+        expect(isStepActiveForTrack(31, 32)).toBe(true);
+        expect(isStepActiveForTrack(32, 32)).toBe(false);
+
+        // 4小節 (64ステップ) の場合、Bar 4 (48..63) はすべてアクティブ
+        expect(isStepActiveForTrack(48, 64)).toBe(true);
+        expect(isStepActiveForTrack(63, 64)).toBe(true);
+        expect(isStepActiveForTrack(64, 64)).toBe(false);
       });
     });
 

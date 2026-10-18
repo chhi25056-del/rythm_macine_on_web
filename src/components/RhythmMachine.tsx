@@ -320,35 +320,31 @@ export default function RhythmMachine() {
     click.stop(time + 0.025);
   }, []);
 
+  /**
+   * クラッシュシンバルの発音
+   * ハイハットに近い高域のクリスプなホワイトノイズをベースに設計。
+   * トライアングル波オシレーターによる濁りを排し、オープンハイハットと同系統の
+   * 高域ハイパスフィルタ（6200Hz）となめらかなサステインエンベロープで、
+   * ハイハットと統一感のある明るく抜けの良いシンバル音を生成します。
+   */
   const playCrash = useCallback((ctx: AudioContext, time: number) => {
     const noise = ctx.createBufferSource();
     noise.buffer = getNoiseBuffer(ctx);
 
     const highpass = ctx.createBiquadFilter();
     highpass.type = "highpass";
-    highpass.frequency.setValueAtTime(4500, time);
+    highpass.frequency.setValueAtTime(6200, time);
 
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.75, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 1.2);
+    gain.gain.setValueAtTime(0.6, time);
+    gain.gain.exponentialRampToValueAtTime(0.005, time + 0.9);
 
     noise.connect(highpass);
     highpass.connect(gain);
     gain.connect(ctx.destination);
 
-    const osc1 = ctx.createOscillator();
-    const oscGain1 = ctx.createGain();
-    osc1.type = "triangle";
-    osc1.frequency.setValueAtTime(1240, time);
-    oscGain1.gain.setValueAtTime(0.12, time);
-    oscGain1.gain.exponentialRampToValueAtTime(0.001, time + 0.6);
-    osc1.connect(oscGain1);
-    oscGain1.connect(ctx.destination);
-    osc1.start(time);
-    osc1.stop(time + 0.6);
-
     noise.start(time);
-    noise.stop(time + 1.2);
+    noise.stop(time + 0.9);
   }, [getNoiseBuffer]);
 
   const playInstrument = useCallback(
@@ -473,6 +469,17 @@ export default function RhythmMachine() {
     if (activeBar >= newBars) {
       setActiveBar(0);
     }
+    const newTotalSteps = newBars * stepsPerBar;
+    setTrackLengths((prev) => {
+      const oldTotalSteps = bars * stepsPerBar;
+      const next = { ...prev };
+      (Object.keys(next) as TrackId[]).forEach((id) => {
+        if (next[id] === oldTotalSteps || next[id] > newTotalSteps) {
+          next[id] = newTotalSteps;
+        }
+      });
+      return next;
+    });
   };
 
   /**
@@ -480,7 +487,7 @@ export default function RhythmMachine() {
    */
   const updateTrackLength = (trackId: TrackId, delta: number) => {
     setTrackLengths((prev) => {
-      const current = prev[trackId] ?? stepsPerBar;
+      const current = prev[trackId] ?? totalSteps;
       const next = Math.max(MIN_TRACK_LENGTH, Math.min(MAX_TRACK_LENGTH, current + delta));
       return { ...prev, [trackId]: next };
     });
@@ -490,7 +497,7 @@ export default function RhythmMachine() {
    * 全トラックのステップ長を一括で設定・リセット
    */
   const handleResetAllTrackLengths = (length?: number) => {
-    const target = length ?? stepsPerBar;
+    const target = length ?? totalSteps;
     setTrackLengths(createDefaultTrackLengths(target));
   };
 
@@ -502,7 +509,8 @@ export default function RhythmMachine() {
     setIsTimeSigMenuOpen(false);
     setPattern(createDefaultPattern(sig));
     const newStepsPerBar = TIME_SIGNATURE_CONFIGS[sig].stepsPerBar;
-    setTrackLengths(createDefaultTrackLengths(newStepsPerBar));
+    const newTotalSteps = bars * newStepsPerBar;
+    setTrackLengths(createDefaultTrackLengths(newTotalSteps));
     globalStepRef.current = 0;
     setGlobalStep(0);
     setActiveBar(0);
@@ -519,7 +527,7 @@ export default function RhythmMachine() {
 
   const handleResetPattern = () => {
     setPattern(createDefaultPattern(timeSignature));
-    setTrackLengths(createDefaultTrackLengths(stepsPerBar));
+    setTrackLengths(createDefaultTrackLengths(totalSteps));
   };
 
   const toggleStep = (trackId: TrackId, stepIndex: number) => {
@@ -693,11 +701,11 @@ export default function RhythmMachine() {
         <div className="flex items-center gap-1.5">
           <button
             type="button"
-            onClick={() => handleResetAllTrackLengths(stepsPerBar)}
+            onClick={() => handleResetAllTrackLengths(totalSteps)}
             className="text-[10px] font-semibold px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700 cursor-pointer"
-            title={`全トラックのステップ長を現在の拍子長（${stepsPerBar}）に揃える`}
+            title={`全トラックのステップ長をループ全体のステップ数（${totalSteps}）に揃える`}
           >
-            長さを揃える ({stepsPerBar})
+            長さを揃える ({totalSteps})
           </button>
           {bars > 1 && (
             <button
@@ -727,7 +735,7 @@ export default function RhythmMachine() {
       <div className="flex flex-col gap-1 w-full">
         {TRACKS.map((track) => {
           let stepCounter = 0;
-          const trackLen = trackLengths[track.id] ?? stepsPerBar;
+          const trackLen = trackLengths[track.id] ?? totalSteps;
           const currentTrackPlayStep = getTrackStepIndex(globalStep, trackLen);
 
           return (
@@ -751,7 +759,7 @@ export default function RhythmMachine() {
                 {/* ステップ長 +/- コントロール */}
                 <div
                   className="flex items-center bg-zinc-950/90 rounded border border-zinc-800 p-0.5 shrink-0"
-                  title={`トラックステップ長: ${trackLen} (1〜32)`}
+                  title={`トラックステップ長: ${trackLen} (1〜${MAX_TRACK_LENGTH})`}
                 >
                   <button
                     type="button"
