@@ -14,6 +14,7 @@ import {
   getTrackStepIndex,
   isStepActiveForTrack,
   shouldTriggerTrack,
+  fillTrackPattern,
 } from "./sequencer";
 
 describe("sequencer", () => {
@@ -232,6 +233,110 @@ describe("sequencer", () => {
         expect(shouldTriggerTrack(pattern, "kick", 4, 4)).toBe(true);
         expect(shouldTriggerTrack(pattern, "kick", 8, 4)).toBe(true);
       });
+    });
+  });
+
+  describe("fillTrackPattern", () => {
+    it("should fill 1/4 note (every 4 steps) in active bar in replace mode", () => {
+      const pattern = createEmptyPattern(32);
+      // あらかじめ別の位置をONにしておく
+      pattern.kick[1] = true;
+      pattern.kick[5] = true;
+
+      const filled = fillTrackPattern(pattern, "kick", "1/4", {
+        scope: "currentBar",
+        barIndex: 0,
+        stepsPerBar: 16,
+      });
+
+      // 4分音符: 0, 4, 8, 12 がON、1や5などはOFFになっていること
+      expect(filled.kick[0]).toBe(true);
+      expect(filled.kick[1]).toBe(false);
+      expect(filled.kick[4]).toBe(true);
+      expect(filled.kick[5]).toBe(false);
+      expect(filled.kick[8]).toBe(true);
+      expect(filled.kick[12]).toBe(true);
+      expect(filled.kick[13]).toBe(false);
+
+      // Bar 1 (ステップ 16以降) は触られていないこと
+      expect(filled.kick[16]).toBe(false);
+    });
+
+    it("should fill 1/8 note (every 2 steps) in active bar", () => {
+      const pattern = createEmptyPattern(16);
+      const filled = fillTrackPattern(pattern, "hihatClosed", "1/8", {
+        scope: "currentBar",
+        barIndex: 0,
+        stepsPerBar: 16,
+      });
+
+      for (let i = 0; i < 16; i++) {
+        expect(filled.hihatClosed[i]).toBe(i % 2 === 0);
+      }
+    });
+
+    it("should fill 1/16 note (every 1 step / all steps) in active bar", () => {
+      const pattern = createEmptyPattern(16);
+      const filled = fillTrackPattern(pattern, "hihatClosed", "1/16", {
+        scope: "currentBar",
+        barIndex: 0,
+        stepsPerBar: 16,
+      });
+
+      for (let i = 0; i < 16; i++) {
+        expect(filled.hihatClosed[i]).toBe(true);
+      }
+    });
+
+    it("should clear steps in current bar when interval is 'clear'", () => {
+      const pattern = createDefaultPattern("4/4", 32);
+      expect(pattern.kick[0]).toBe(true);
+
+      const cleared = fillTrackPattern(pattern, "kick", "clear", {
+        scope: "currentBar",
+        barIndex: 0,
+        stepsPerBar: 16,
+      });
+
+      for (let i = 0; i < 16; i++) {
+        expect(cleared.kick[i]).toBe(false);
+      }
+      // Bar 1 は残っている
+      expect(cleared.kick[16]).toBe(true);
+    });
+
+    it("should support mode='add' without clearing existing steps", () => {
+      const pattern = createEmptyPattern(16);
+      pattern.snare[1] = true; // 16分裏拍
+
+      const filled = fillTrackPattern(pattern, "snare", "1/4", {
+        mode: "add",
+        scope: "currentBar",
+        barIndex: 0,
+        stepsPerBar: 16,
+      });
+
+      expect(filled.snare[1]).toBe(true); // 保持される
+      expect(filled.snare[0]).toBe(true);
+      expect(filled.snare[4]).toBe(true);
+      expect(filled.snare[8]).toBe(true);
+      expect(filled.snare[12]).toBe(true);
+    });
+
+    it("should respect trackLength limit for polymeter", () => {
+      const pattern = createEmptyPattern(16);
+      const filled = fillTrackPattern(pattern, "kick", "1/4", {
+        scope: "currentBar",
+        barIndex: 0,
+        stepsPerBar: 16,
+        trackLength: 10, // 10ステップまで
+      });
+
+      expect(filled.kick[0]).toBe(true);
+      expect(filled.kick[4]).toBe(true);
+      expect(filled.kick[8]).toBe(true);
+      // 12は10を超えているためfalse
+      expect(filled.kick[12]).toBe(false);
     });
   });
 });

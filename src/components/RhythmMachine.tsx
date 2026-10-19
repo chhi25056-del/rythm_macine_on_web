@@ -7,6 +7,7 @@ import {
   type MeasureCount,
   type TimeSignature,
   type TrackLengths,
+  type FillInterval,
   TIME_SIGNATURE_CONFIGS,
   MIN_TRACK_LENGTH,
   MAX_TRACK_LENGTH,
@@ -18,6 +19,7 @@ import {
   shouldTriggerTrack,
   togglePatternStep,
   copyBarPattern,
+  fillTrackPattern,
 } from "@/lib/sequencer";
 
 interface TrackDisplayConfig {
@@ -98,6 +100,7 @@ export default function RhythmMachine() {
   const [bars, setBars] = useState<MeasureCount>(1);
   const [activeBar, setActiveBar] = useState<number>(0);
   const [autoFollow, setAutoFollow] = useState<boolean>(true);
+  const [openFillTrackId, setOpenFillTrackId] = useState<TrackId | null>(null);
 
   // トラックごとのステップ長（ポリメーター対応: 1〜32）
   const [trackLengths, setTrackLengths] = useState<TrackLengths>(() =>
@@ -107,6 +110,7 @@ export default function RhythmMachine() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const noiseBufferRef = useRef<AudioBuffer | null>(null);
   const timeSigMenuRef = useRef<HTMLDivElement | null>(null);
+  const fillMenuRef = useRef<HTMLDivElement | null>(null);
   const patternRef = useRef(pattern);
   const trackLengthsRef = useRef(trackLengths);
   const globalStepRef = useRef(0);
@@ -133,14 +137,20 @@ export default function RhythmMachine() {
       ) {
         setIsTimeSigMenuOpen(false);
       }
+      if (
+        fillMenuRef.current &&
+        !fillMenuRef.current.contains(e.target as Node)
+      ) {
+        setOpenFillTrackId(null);
+      }
     };
-    if (isTimeSigMenuOpen) {
+    if (isTimeSigMenuOpen || openFillTrackId) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isTimeSigMenuOpen]);
+  }, [isTimeSigMenuOpen, openFillTrackId]);
 
   const getAudioContext = useCallback((): AudioContext => {
     if (!audioCtxRef.current) {
@@ -540,6 +550,26 @@ export default function RhythmMachine() {
     });
   };
 
+  const handleFillTrack = (
+    trackId: TrackId,
+    interval: FillInterval,
+    scope: "currentBar" | "all" = "currentBar"
+  ) => {
+    setPattern((prev) =>
+      fillTrackPattern(prev, trackId, interval, {
+        scope,
+        barIndex: activeBar,
+        stepsPerBar,
+        trackLength: trackLengths[trackId],
+        mode: "replace",
+      })
+    );
+    if (interval !== "clear") {
+      triggerInstrument(trackId);
+    }
+    setOpenFillTrackId(null);
+  };
+
   const barOffset = activeBar * stepsPerBar;
   const currentPlayingBar = Math.floor((globalStep % totalSteps) / stepsPerBar);
 
@@ -740,8 +770,8 @@ export default function RhythmMachine() {
 
           return (
             <div key={track.id} className="flex items-center gap-2 w-full">
-              {/* トラック名ラベル＆ステップ長コントローラー (Polymeter) */}
-              <div className="w-28 sm:w-36 shrink-0 flex items-center justify-between gap-1">
+              {/* トラック名ラベル＆ステップ長コントローラー (Polymeter) & クイックフィル */}
+              <div className="w-36 sm:w-44 shrink-0 flex items-center justify-between gap-1 relative">
                 <button
                   type="button"
                   onClick={() => triggerInstrument(track.id)}
@@ -751,7 +781,7 @@ export default function RhythmMachine() {
                   <span className={`text-xs font-bold truncate group-hover:brightness-125 ${track.badgeColor}`}>
                     {track.name}
                   </span>
-                  <span className="text-[10px] text-zinc-500 font-semibold group-hover:text-zinc-300">
+                  <span className="text-[10px] text-zinc-500 font-semibold group-hover:text-zinc-300 ml-1">
                     {track.shortName}
                   </span>
                 </button>
@@ -770,7 +800,7 @@ export default function RhythmMachine() {
                   >
                     -
                   </button>
-                  <span className="font-mono text-[10px] font-bold text-amber-300 w-5 text-center select-none">
+                  <span className="font-mono text-[10px] font-bold text-amber-300 w-4 sm:w-5 text-center select-none">
                     {trackLen}
                   </span>
                   <button
@@ -782,6 +812,99 @@ export default function RhythmMachine() {
                   >
                     +
                   </button>
+                </div>
+
+                {/* クイックフィルメニュー（4分・8分・16分） */}
+                <div
+                  className="relative shrink-0"
+                  ref={openFillTrackId === track.id ? fillMenuRef : null}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setOpenFillTrackId(openFillTrackId === track.id ? null : track.id)}
+                    className={`px-1.5 py-0.5 text-[10px] font-bold rounded border transition-all flex items-center gap-0.5 cursor-pointer select-none ${openFillTrackId === track.id
+                      ? "bg-amber-400 text-zinc-950 border-amber-300 shadow-sm"
+                      : "bg-zinc-950/90 text-zinc-400 hover:text-amber-300 border-zinc-800 hover:border-zinc-700"
+                      }`}
+                    title={`${track.name} のステップを一括配置（4分・8分・16分）`}
+                  >
+                    <span>Fill</span>
+                    <span className="text-[8px] opacity-70">▾</span>
+                  </button>
+
+                  {openFillTrackId === track.id && (
+                    <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1 z-30 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/80 rounded-lg p-1.5 shadow-2xl shadow-black/80 min-w-[136px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100">
+                      <div className="text-[9px] font-bold text-zinc-400 px-1.5 py-0.5 uppercase tracking-wider border-b border-zinc-800/80 flex items-center justify-between">
+                        <span className={track.badgeColor}>{track.name}</span>
+                        <span className="text-amber-400 font-mono">Bar {activeBar + 1}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleFillTrack(track.id, "1/4")}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-zinc-200 hover:bg-amber-400 hover:text-zinc-950 transition-colors flex items-center justify-between font-medium cursor-pointer"
+                      >
+                        <span>♩ 4分音符</span>
+                        <span className="text-[10px] opacity-75 font-mono">1/4</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleFillTrack(track.id, "1/8")}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-zinc-200 hover:bg-amber-400 hover:text-zinc-950 transition-colors flex items-center justify-between font-medium cursor-pointer"
+                      >
+                        <span>♪ 8分音符</span>
+                        <span className="text-[10px] opacity-75 font-mono">1/8</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleFillTrack(track.id, "1/16")}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-zinc-200 hover:bg-amber-400 hover:text-zinc-950 transition-colors flex items-center justify-between font-medium cursor-pointer"
+                      >
+                        <span>♬ 16分音符</span>
+                        <span className="text-[10px] opacity-75 font-mono">1/16</span>
+                      </button>
+                      <div className="my-0.5 border-t border-zinc-800" />
+                      <button
+                        type="button"
+                        onClick={() => handleFillTrack(track.id, "clear")}
+                        className="w-full text-left px-2 py-1 rounded text-xs text-rose-400 hover:bg-rose-500 hover:text-white transition-colors flex items-center justify-between font-medium cursor-pointer"
+                      >
+                        <span>✕ クリア</span>
+                        <span className="text-[10px] opacity-75 font-mono">Clear</span>
+                      </button>
+
+                      {bars > 1 && (
+                        <div className="pt-1 mt-0.5 border-t border-zinc-800">
+                          <div className="text-[9px] text-zinc-400 px-1.5 pb-1 font-semibold">全小節に適用:</div>
+                          <div className="grid grid-cols-3 gap-1 px-0.5">
+                            <button
+                              type="button"
+                              onClick={() => handleFillTrack(track.id, "1/4", "all")}
+                              className="text-[10px] px-1 py-0.5 rounded bg-zinc-800 hover:bg-amber-400 hover:text-zinc-950 text-zinc-200 font-mono text-center cursor-pointer transition-colors"
+                              title="全小節に4分音符を配置"
+                            >
+                              4分
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleFillTrack(track.id, "1/8", "all")}
+                              className="text-[10px] px-1 py-0.5 rounded bg-zinc-800 hover:bg-amber-400 hover:text-zinc-950 text-zinc-200 font-mono text-center cursor-pointer transition-colors"
+                              title="全小節に8分音符を配置"
+                            >
+                              8分
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleFillTrack(track.id, "1/16", "all")}
+                              className="text-[10px] px-1 py-0.5 rounded bg-zinc-800 hover:bg-amber-400 hover:text-zinc-950 text-zinc-200 font-mono text-center cursor-pointer transition-colors"
+                              title="全小節に16分音符を配置"
+                            >
+                              16分
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

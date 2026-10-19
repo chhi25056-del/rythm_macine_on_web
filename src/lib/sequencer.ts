@@ -307,3 +307,85 @@ export function copyBarPattern(
 export function getNextStep(currentStep: number, totalSteps: number = 16): number {
   return (currentStep + 1) % totalSteps;
 }
+
+export type FillInterval = "1/4" | "1/8" | "1/16" | "clear";
+
+export interface FillTrackOptions {
+  /**
+   * "replace": 既存のステップをクリアして指定音価のみONにする（デフォルト）
+   * "add": 既存のONステップを維持したまま指定音価を追加ONにする
+   */
+  mode?: "replace" | "add";
+  /** 対象範囲: 現在小節のみ ("currentBar") または トラック全体 ("all") */
+  scope?: "currentBar" | "all";
+  barIndex?: number;
+  stepsPerBar?: number;
+  trackLength?: number;
+}
+
+/**
+ * 指定トラックのステップを指定した音価（4分、8分、16分）の間隔で一括ONにします
+ */
+export function fillTrackPattern(
+  pattern: Pattern,
+  trackId: TrackId,
+  interval: FillInterval,
+  options: FillTrackOptions = {}
+): Pattern {
+  const {
+    mode = "replace",
+    scope = "currentBar",
+    barIndex = 0,
+    stepsPerBar = 16,
+    trackLength,
+  } = options;
+
+  const currentSteps = pattern[trackId];
+  if (!currentSteps) return pattern;
+
+  const newSteps = [...currentSteps];
+  const total = newSteps.length;
+
+  let start = 0;
+  let end = total;
+
+  if (scope === "currentBar") {
+    start = barIndex * stepsPerBar;
+    end = Math.min(start + stepsPerBar, total);
+  }
+
+  const stepInterval =
+    interval === "1/4" ? 4 : interval === "1/8" ? 2 : interval === "1/16" ? 1 : 0;
+
+  for (let i = start; i < end; i++) {
+    // trackLengthが指定されており、それを超える場合はアクティブ範囲外なのでOFFのまま
+    if (trackLength !== undefined && i >= trackLength) {
+      newSteps[i] = false;
+      continue;
+    }
+
+    if (interval === "clear") {
+      newSteps[i] = false;
+      continue;
+    }
+
+    const localStepInBar =
+      scope === "currentBar"
+        ? i - start
+        : i - Math.floor(i / stepsPerBar) * stepsPerBar;
+    const shouldBeOn = localStepInBar % stepInterval === 0;
+
+    if (mode === "replace") {
+      newSteps[i] = shouldBeOn;
+    } else {
+      if (shouldBeOn) {
+        newSteps[i] = true;
+      }
+    }
+  }
+
+  return {
+    ...pattern,
+    [trackId]: newSteps,
+  };
+}
