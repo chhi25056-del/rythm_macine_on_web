@@ -21,6 +21,8 @@ import {
   copyBarPattern,
   fillTrackPattern,
 } from "@/lib/sequencer";
+import { useTutorial } from "@/hooks/useTutorial";
+import { TutorialSpotlight } from "@/components/TutorialSpotlight";
 
 interface TrackDisplayConfig {
   id: TrackId;
@@ -101,6 +103,18 @@ export default function RhythmMachine() {
   const [activeBar, setActiveBar] = useState<number>(0);
   const [autoFollow, setAutoFollow] = useState<boolean>(true);
   const [openFillTrackId, setOpenFillTrackId] = useState<TrackId | null>(null);
+
+  // チュートリアル状態管理
+  const {
+    tutorialStep,
+    currentStepConfig,
+    totalSteps: tutorialTotalSteps,
+    isCompleted: isTutorialCompleted,
+    dismissCompleted: dismissTutorialCompleted,
+    triggerStep: triggerTutorialStep,
+    skipTutorial,
+    startTutorial,
+  } = useTutorial(1);
 
   // トラックごとのステップ長（ポリメーター対応: 1〜32）
   const [trackLengths, setTrackLengths] = useState<TrackLengths>(() =>
@@ -463,6 +477,7 @@ export default function RhythmMachine() {
         setActiveBar(0);
       }
       setIsPlaying(true);
+      triggerTutorialStep(1);
     } else {
       setIsPlaying(false);
       globalStepRef.current = 0;
@@ -472,6 +487,7 @@ export default function RhythmMachine() {
 
   const handleBpmChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setBpm(Number(e.target.value));
+    triggerTutorialStep(3);
   };
 
   const handleMeasureChange = (newBars: MeasureCount) => {
@@ -501,6 +517,7 @@ export default function RhythmMachine() {
       const next = Math.max(MIN_TRACK_LENGTH, Math.min(MAX_TRACK_LENGTH, current + delta));
       return { ...prev, [trackId]: next };
     });
+    triggerTutorialStep(5);
   };
 
   /**
@@ -548,6 +565,7 @@ export default function RhythmMachine() {
       }
       return next;
     });
+    triggerTutorialStep(2);
   };
 
   const handleFillTrack = (
@@ -567,6 +585,7 @@ export default function RhythmMachine() {
     if (interval !== "clear") {
       triggerInstrument(trackId);
     }
+    triggerTutorialStep(4);
     setOpenFillTrackId(null);
   };
 
@@ -655,7 +674,10 @@ export default function RhythmMachine() {
           </div>
 
           {/* BPM */}
-          <div className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 px-2 py-1 rounded-lg">
+          <div
+            id="tutorial-target-bpm"
+            className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 px-2 py-1 rounded-lg transition-all"
+          >
             <span className="text-[10px] font-bold text-zinc-500">BPM</span>
             <span className="font-mono font-bold text-xs text-amber-400 w-7 text-right tabular-nums">
               {bpm}
@@ -673,6 +695,7 @@ export default function RhythmMachine() {
 
           {/* PLAY / STOP */}
           <button
+            id="tutorial-target-play"
             onClick={togglePlay}
             className={`px-4 py-1 rounded-lg font-bold tracking-wide transition-all shadow text-xs flex items-center gap-1.5 cursor-pointer ${isPlaying
               ? "bg-amber-500 hover:bg-amber-600 text-zinc-950"
@@ -682,8 +705,35 @@ export default function RhythmMachine() {
             <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? "bg-zinc-950 animate-pulse" : "bg-white"}`} />
             {isPlaying ? "STOP" : "PLAY"}
           </button>
+
+          {/* チュートリアルボタン（常設してレイアウト変化を防止） */}
+          <button
+            type="button"
+            onClick={tutorialStep !== null ? skipTutorial : startTutorial}
+            className={`px-2 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border ${
+              tutorialStep !== null
+                ? "bg-amber-400 text-zinc-950 border-amber-300 shadow-sm"
+                : "bg-zinc-950 hover:bg-zinc-800 border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-amber-400"
+            }`}
+            title={tutorialStep !== null ? "チュートリアルを終了する" : "チュートリアルを開始する"}
+          >
+            <span>💡</span>
+            <span className="hidden sm:inline">
+              {tutorialStep !== null ? "チュートリアル中" : "チュートリアル"}
+            </span>
+          </button>
         </div>
       </div>
+
+      {/* チュートリアル・暗転スポットライト & 吹き出し & 完了祝賀演出 */}
+      <TutorialSpotlight
+        currentStep={tutorialStep}
+        totalSteps={tutorialTotalSteps}
+        config={currentStepConfig}
+        isCompleted={isTutorialCompleted}
+        onSkip={skipTutorial}
+        onDismiss={dismissTutorialCompleted}
+      />
 
       {/* 小節ナビゲーション＆操作ツール */}
       <div className="flex items-center justify-between gap-2 px-2 py-1 bg-zinc-950/70 rounded-lg border border-zinc-800/80 text-xs">
@@ -788,6 +838,7 @@ export default function RhythmMachine() {
 
                 {/* ステップ長 +/- コントロール */}
                 <div
+                  id={track.id === "hihatClosed" ? "tutorial-target-length" : undefined}
                   className="flex items-center bg-zinc-950/90 rounded border border-zinc-800 p-0.5 shrink-0"
                   title={`トラックステップ長: ${trackLen} (1〜${MAX_TRACK_LENGTH})`}
                 >
@@ -816,6 +867,7 @@ export default function RhythmMachine() {
 
                 {/* クイックフィルメニュー（4分・8分・16分） */}
                 <div
+                  id={track.id === "hihatClosed" ? "tutorial-target-fill" : undefined}
                   className="relative shrink-0"
                   ref={openFillTrackId === track.id ? fillMenuRef : null}
                 >
@@ -833,7 +885,7 @@ export default function RhythmMachine() {
                   </button>
 
                   {openFillTrackId === track.id && (
-                    <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1 z-30 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/80 rounded-lg p-1.5 shadow-2xl shadow-black/80 min-w-[136px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100">
+                    <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1 z-50 bg-zinc-900 border border-zinc-700/80 rounded-lg p-1.5 shadow-2xl shadow-black min-w-[136px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100">
                       <div className="text-[9px] font-bold text-zinc-400 px-1.5 py-0.5 uppercase tracking-wider border-b border-zinc-800/80 flex items-center justify-between">
                         <span className={track.badgeColor}>{track.name}</span>
                         <span className="text-amber-400 font-mono">Bar {activeBar + 1}</span>
@@ -949,6 +1001,7 @@ export default function RhythmMachine() {
                         return (
                           <button
                             key={stepInBar}
+                            id={track.id === "kick" && stepInBar === 0 ? "tutorial-target-step" : undefined}
                             type="button"
                             onClick={() => toggleStep(track.id, absoluteStep)}
                             className={`w-full h-7 sm:h-8 rounded transition-all border flex items-center justify-center select-none cursor-pointer ${on
