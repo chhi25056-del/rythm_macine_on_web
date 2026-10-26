@@ -23,6 +23,15 @@ import {
 } from "@/lib/sequencer";
 import { useTutorial } from "@/hooks/useTutorial";
 import { TutorialSpotlight } from "@/components/TutorialSpotlight";
+import { usePatternTutorial } from "@/hooks/usePatternTutorial";
+import { PatternTutorialMenu } from "@/components/PatternTutorialMenu";
+import { PatternTutorialGuide } from "@/components/PatternTutorialGuide";
+import {
+  type PatternTutorialType,
+  PATTERN_TUTORIAL_CONFIGS,
+  getRemainingTargetSteps,
+  isStepHighlightedInTutorial,
+} from "@/lib/patternTutorial";
 
 interface TrackDisplayConfig {
   id: TrackId;
@@ -115,6 +124,51 @@ export default function RhythmMachine() {
     skipTutorial,
     startTutorial,
   } = useTutorial(1);
+
+  // リズムパターン学習チュートリアル（オプトイン）
+  const patternTutorial = usePatternTutorial();
+
+  // パターンチュートリアル開始ハンドラー
+  const handleStartPatternTutorial = useCallback(
+    (type: PatternTutorialType) => {
+      if (tutorialStep !== null) {
+        skipTutorial();
+      }
+      if (timeSignature !== "4/4") {
+        setTimeSignature("4/4");
+      }
+      if (bars !== 1) {
+        setBars(1);
+      }
+      setActiveBar(0);
+      setTrackLengths(createDefaultTrackLengths(16));
+      setPattern(createEmptyPattern(16));
+      const cfg = PATTERN_TUTORIAL_CONFIGS[type];
+      if (cfg) {
+        setBpm(cfg.recommendedBpm);
+      }
+      patternTutorial.startTutorial(type);
+    },
+    [tutorialStep, skipTutorial, timeSignature, bars, patternTutorial]
+  );
+
+  const handleStartBasicTutorial = useCallback(() => {
+    if (patternTutorial.activeType !== null) {
+      patternTutorial.stopTutorial();
+    }
+    startTutorial();
+  }, [patternTutorial, startTutorial]);
+
+  // パターンまたは再生状態の変更時にパターンチュートリアルの進行を評価
+  useEffect(() => {
+    if (patternTutorial.activeType !== null) {
+      patternTutorial.checkAndAdvance(pattern, isPlaying);
+    }
+  }, [pattern, isPlaying, patternTutorial]);
+
+  const remainingPatternStepsCount = patternTutorial.currentStepConfig
+    ? getRemainingTargetSteps(patternTutorial.currentStepConfig, pattern).length
+    : 0;
 
   // トラックごとのステップ長（ポリメーター対応: 1〜32）
   const [trackLengths, setTrackLengths] = useState<TrackLengths>(() =>
@@ -709,7 +763,7 @@ export default function RhythmMachine() {
           {/* チュートリアルボタン（常設してレイアウト変化を防止） */}
           <button
             type="button"
-            onClick={tutorialStep !== null ? skipTutorial : startTutorial}
+            onClick={tutorialStep !== null ? skipTutorial : handleStartBasicTutorial}
             className={`px-2 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border ${
               tutorialStep !== null
                 ? "bg-amber-400 text-zinc-950 border-amber-300 shadow-sm"
@@ -722,6 +776,13 @@ export default function RhythmMachine() {
               {tutorialStep !== null ? "チュートリアル中" : "チュートリアル"}
             </span>
           </button>
+
+          {/* リズムパターンチュートリアル（任意実行） */}
+          <PatternTutorialMenu
+            activeType={patternTutorial.activeType}
+            onSelectPattern={handleStartPatternTutorial}
+            onStopPattern={patternTutorial.stopTutorial}
+          />
         </div>
       </div>
 
@@ -733,6 +794,21 @@ export default function RhythmMachine() {
         isCompleted={isTutorialCompleted}
         onSkip={skipTutorial}
         onDismiss={dismissTutorialCompleted}
+      />
+
+      {/* リズムパターン学習ガイド（フロートHUDカード & 完了演出） */}
+      <PatternTutorialGuide
+        activeConfig={patternTutorial.activeConfig}
+        currentStepConfig={patternTutorial.currentStepConfig}
+        stepNumber={patternTutorial.stepNumber}
+        totalSteps={patternTutorial.totalSteps}
+        isCompleted={patternTutorial.isCompleted}
+        isAdvancing={patternTutorial.isAdvancing}
+        remainingStepsCount={remainingPatternStepsCount}
+        onNext={patternTutorial.nextStep}
+        onPrev={patternTutorial.prevStep}
+        onStop={patternTutorial.stopTutorial}
+        onDismissCompleted={patternTutorial.dismissCompleted}
       />
 
       {/* 小節ナビゲーション＆操作ツール */}
@@ -998,30 +1074,43 @@ export default function RhythmMachine() {
                           );
                         }
 
+                        const isPatternTarget = isStepHighlightedInTutorial(
+                          patternTutorial.currentStepConfig,
+                          track.id,
+                          stepInBar
+                        );
+
                         return (
                           <button
                             key={stepInBar}
                             id={track.id === "kick" && stepInBar === 0 ? "tutorial-target-step" : undefined}
                             type="button"
                             onClick={() => toggleStep(track.id, absoluteStep)}
-                            className={`w-full h-7 sm:h-8 rounded transition-all border flex items-center justify-center select-none cursor-pointer ${on
-                              ? track.activeClasses
-                              : isDownbeat
+                            className={`w-full h-7 sm:h-8 rounded transition-all border flex items-center justify-center select-none cursor-pointer ${
+                              on
+                                ? track.activeClasses
+                                : isPatternTarget
+                                ? "bg-amber-950/40 border-amber-400 ring-2 ring-amber-400/70 shadow-lg shadow-amber-400/20 animate-pulse"
+                                : isDownbeat
                                 ? "bg-zinc-800/90 border-zinc-700 hover:border-zinc-500"
                                 : "bg-zinc-900 border-zinc-800/90 hover:border-zinc-600"
-                              } ${isCurrent
+                            } ${
+                              isCurrent
                                 ? "ring-2 ring-amber-400 scale-105 z-10 brightness-125 shadow shadow-amber-400/40"
                                 : ""
-                              }`}
+                            }`}
                             aria-label={`${track.name} Bar ${activeBar + 1} Step ${stepInBar + 1}`}
                           >
                             <span
-                              className={`w-1.5 h-1.5 rounded-full transition-all ${on
-                                ? track.dotClasses
-                                : isDownbeat
+                              className={`w-1.5 h-1.5 rounded-full transition-all ${
+                                on
+                                  ? track.dotClasses
+                                  : isPatternTarget
+                                  ? "bg-amber-400 scale-125 animate-ping"
+                                  : isDownbeat
                                   ? "bg-zinc-600/70"
                                   : "bg-zinc-700/40"
-                                }`}
+                              }`}
                             />
                           </button>
                         );
