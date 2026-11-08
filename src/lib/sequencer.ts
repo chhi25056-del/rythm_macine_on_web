@@ -2,7 +2,7 @@
  * 拍子・ステップシーケンサーの状態更新を行う純粋関数群
  */
 
-export type TrackId =
+export type BuiltinTrackId =
   | "crash"
   | "hihatOpen"
   | "hihatClosed"
@@ -10,6 +10,17 @@ export type TrackId =
   | "lowTom"
   | "snare"
   | "kick";
+
+export type CustomTrackId = "custom1" | "custom2" | "custom3" | "custom4";
+
+export const CUSTOM_TRACK_IDS: CustomTrackId[] = [
+  "custom1",
+  "custom2",
+  "custom3",
+  "custom4",
+];
+
+export type TrackId = BuiltinTrackId | CustomTrackId;
 
 export type MeasureCount = 1 | 2 | 4;
 
@@ -77,6 +88,10 @@ export const TRACK_INFO: Record<TrackId, TrackInfo> = {
   lowTom: { id: "lowTom", name: "Low Tom", shortName: "LT" },
   snare: { id: "snare", name: "Snare", shortName: "SD" },
   kick: { id: "kick", name: "Kick", shortName: "KD" },
+  custom1: { id: "custom1", name: "Custom 1", shortName: "C1" },
+  custom2: { id: "custom2", name: "Custom 2", shortName: "C2" },
+  custom3: { id: "custom3", name: "Custom 3", shortName: "C3" },
+  custom4: { id: "custom4", name: "Custom 4", shortName: "C4" },
 };
 
 export const MIN_TRACK_LENGTH = 1;
@@ -100,6 +115,10 @@ export function createDefaultTrackLengths(
     lowTom: defaultLength,
     snare: defaultLength,
     kick: defaultLength,
+    custom1: defaultLength,
+    custom2: defaultLength,
+    custom3: defaultLength,
+    custom4: defaultLength,
   };
 }
 
@@ -152,6 +171,10 @@ export function createEmptyPattern(totalSteps: number = MAX_STEPS): Pattern {
     lowTom: Array(totalSteps).fill(false),
     snare: Array(totalSteps).fill(false),
     kick: Array(totalSteps).fill(false),
+    custom1: Array(totalSteps).fill(false),
+    custom2: Array(totalSteps).fill(false),
+    custom3: Array(totalSteps).fill(false),
+    custom4: Array(totalSteps).fill(false),
   };
 }
 

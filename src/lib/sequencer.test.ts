@@ -19,7 +19,7 @@ import {
 
 describe("sequencer", () => {
   describe("TRACK_INFO", () => {
-    it("should include all 7 drum instruments", () => {
+    it("should include all drum instruments and custom tracks", () => {
       expect(TRACK_INFO.kick.name).toBe("Kick");
       expect(TRACK_INFO.snare.name).toBe("Snare");
       expect(TRACK_INFO.hihatClosed.name).toBe("Closed HH");
@@ -27,6 +27,10 @@ describe("sequencer", () => {
       expect(TRACK_INFO.hiTom.name).toBe("Hi Tom");
       expect(TRACK_INFO.lowTom.name).toBe("Low Tom");
       expect(TRACK_INFO.crash.name).toBe("Crash");
+      expect(TRACK_INFO.custom1.name).toBe("Custom 1");
+      expect(TRACK_INFO.custom2.name).toBe("Custom 2");
+      expect(TRACK_INFO.custom3.name).toBe("Custom 3");
+      expect(TRACK_INFO.custom4.name).toBe("Custom 4");
     });
   });
 

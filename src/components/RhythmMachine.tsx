@@ -20,6 +20,10 @@ import {
   togglePatternStep,
   copyBarPattern,
   fillTrackPattern,
+  CUSTOM_TRACK_IDS,
+  type CustomTrackId,
+  MAX_STEPS,
+  TRACK_INFO,
 } from "@/lib/sequencer";
 import { useTutorial } from "@/hooks/useTutorial";
 import { TutorialSpotlight } from "@/components/TutorialSpotlight";
@@ -32,6 +36,12 @@ import {
   getRemainingTargetSteps,
   isStepHighlightedInTutorial,
 } from "@/lib/patternTutorial";
+import { CustomTrackControl } from "@/components/CustomTrackControl";
+import {
+  playAudioBuffer,
+  stopPreviousAudioBuffer,
+  type CustomSampleState,
+} from "@/lib/customAudio";
 
 interface TrackDisplayConfig {
   id: TrackId;
@@ -42,7 +52,7 @@ interface TrackDisplayConfig {
   dotClasses: string;
 }
 
-const TRACKS: TrackDisplayConfig[] = [
+const BUILTIN_TRACKS: TrackDisplayConfig[] = [
   {
     id: "crash",
     name: "Crash",
@@ -101,6 +111,41 @@ const TRACKS: TrackDisplayConfig[] = [
   },
 ];
 
+const CUSTOM_TRACK_CONFIGS: Record<CustomTrackId, TrackDisplayConfig> = {
+  custom1: {
+    id: "custom1",
+    name: "Custom 1",
+    shortName: "C1",
+    badgeColor: "text-fuchsia-400",
+    activeClasses: "bg-fuchsia-500 border-fuchsia-400 text-white shadow-md shadow-fuchsia-500/20",
+    dotClasses: "bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)] scale-110",
+  },
+  custom2: {
+    id: "custom2",
+    name: "Custom 2",
+    shortName: "C2",
+    badgeColor: "text-emerald-400",
+    activeClasses: "bg-emerald-500 border-emerald-400 text-white shadow-md shadow-emerald-500/20",
+    dotClasses: "bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)] scale-110",
+  },
+  custom3: {
+    id: "custom3",
+    name: "Custom 3",
+    shortName: "C3",
+    badgeColor: "text-cyan-400",
+    activeClasses: "bg-cyan-500 border-cyan-400 text-white shadow-md shadow-cyan-500/20",
+    dotClasses: "bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)] scale-110",
+  },
+  custom4: {
+    id: "custom4",
+    name: "Custom 4",
+    shortName: "C4",
+    badgeColor: "text-violet-400",
+    activeClasses: "bg-violet-500 border-violet-400 text-white shadow-md shadow-violet-500/20",
+    dotClasses: "bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)] scale-110",
+  },
+};
+
 export default function RhythmMachine() {
   const [timeSignature, setTimeSignature] = useState<TimeSignature>("4/4");
   const [isTimeSigMenuOpen, setIsTimeSigMenuOpen] = useState<boolean>(false);
@@ -112,6 +157,7 @@ export default function RhythmMachine() {
   const [activeBar, setActiveBar] = useState<number>(0);
   const [autoFollow, setAutoFollow] = useState<boolean>(true);
   const [openFillTrackId, setOpenFillTrackId] = useState<TrackId | null>(null);
+  const [fillMenuPlacement, setFillMenuPlacement] = useState<"top" | "bottom">("bottom");
 
   // チュートリアル状態管理
   const {
@@ -174,6 +220,73 @@ export default function RhythmMachine() {
   const [trackLengths, setTrackLengths] = useState<TrackLengths>(() =>
     createDefaultTrackLengths(TIME_SIGNATURE_CONFIGS["4/4"].stepsPerBar)
   );
+
+  // ユーザーが調整可能なカスタムトラック一覧（初期値: 1トラック、最大4トラック）
+  const [activeCustomTrackIds, setActiveCustomTrackIds] = useState<CustomTrackId[]>(["custom1"]);
+
+  // 各カスタムトラックごとの音声サンプル状態
+  const [customSamples, setCustomSamples] = useState<Record<CustomTrackId, CustomSampleState>>({
+    custom1: { buffer: null, fileName: null, displayName: "Custom 1" },
+    custom2: { buffer: null, fileName: null, displayName: "Custom 2" },
+    custom3: { buffer: null, fileName: null, displayName: "Custom 3" },
+    custom4: { buffer: null, fileName: null, displayName: "Custom 4" },
+  });
+  const customSamplesRef = useRef(customSamples);
+
+  // 各カスタムトラックごとの直前の再生インスタンス（トラックごとに独立してチョーク/消音）
+  const customSourcesRef = useRef<Record<CustomTrackId, AudioBufferSourceNode | null>>({
+    custom1: null,
+    custom2: null,
+    custom3: null,
+    custom4: null,
+  });
+
+  useEffect(() => {
+    customSamplesRef.current = customSamples;
+  }, [customSamples]);
+
+  // カスタムトラックの追加（最大4トラック）
+  const handleAddCustomTrack = () => {
+    const nextAvailable = CUSTOM_TRACK_IDS.find((id) => !activeCustomTrackIds.includes(id));
+    if (nextAvailable) {
+      setActiveCustomTrackIds((prev) => [...prev, nextAvailable]);
+    }
+  };
+
+  // カスタムトラックの削除
+  const handleRemoveCustomTrack = (id: CustomTrackId) => {
+    setActiveCustomTrackIds((prev) => prev.filter((t) => t !== id));
+    // パターンと音声状態をクリア
+    setPattern((prev) => ({
+      ...prev,
+      [id]: Array(MAX_STEPS).fill(false),
+    }));
+    setCustomSamples((prev) => ({
+      ...prev,
+      [id]: { buffer: null, fileName: null, displayName: TRACK_INFO[id].name },
+    }));
+    stopPreviousAudioBuffer(customSourcesRef.current[id]);
+    customSourcesRef.current[id] = null;
+    if (openFillTrackId === id) {
+      setOpenFillTrackId(null);
+    }
+  };
+
+  // クイックフィルメニューの展開方向を画面の空きスペースに応じて自動判定
+  const handleToggleFillMenu = (
+    trackId: TrackId,
+    e: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    if (openFillTrackId === trackId) {
+      setOpenFillTrackId(null);
+    } else {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      // メニューの高さ（約190〜220px）が画面下端に収まらない場合は上方向に展開
+      setFillMenuPlacement(spaceBelow < 220 ? "top" : "bottom");
+      setOpenFillTrackId(trackId);
+    }
+  };
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const noiseBufferRef = useRef<AudioBuffer | null>(null);
@@ -449,6 +562,22 @@ export default function RhythmMachine() {
         case "kick":
           playKick(ctx, time);
           break;
+        case "custom1":
+        case "custom2":
+        case "custom3":
+        case "custom4": {
+          const sample = customSamplesRef.current[trackId];
+          if (sample?.buffer) {
+            customSourcesRef.current[trackId] = playAudioBuffer(
+              sample.buffer,
+              ctx,
+              time,
+              0.7,
+              customSourcesRef.current[trackId]
+            );
+          }
+          break;
+        }
       }
     },
     [
@@ -536,6 +665,9 @@ export default function RhythmMachine() {
       setIsPlaying(false);
       globalStepRef.current = 0;
       setGlobalStep(0);
+      Object.values(customSourcesRef.current).forEach((source) =>
+        stopPreviousAudioBuffer(source)
+      );
     }
   };
 
@@ -612,13 +744,16 @@ export default function RhythmMachine() {
   };
 
   const toggleStep = (trackId: TrackId, stepIndex: number) => {
-    setPattern((prev) => {
-      const next = togglePatternStep(prev, trackId, stepIndex);
-      if (next[trackId][stepIndex]) {
-        triggerInstrument(trackId);
-      }
-      return next;
-    });
+    const isCurrentlyOn = Boolean(pattern[trackId]?.[stepIndex]);
+    const willBeOn = !isCurrentlyOn;
+
+    setPattern((prev) => togglePatternStep(prev, trackId, stepIndex));
+
+    // ステップをONにしたときにプレビューを発音
+    // ※ 再生中はシーケンサー自体の再生と重複して音が大きく聞こえるのを防ぐため、停止中のみプレビュー
+    if (willBeOn && !isPlaying) {
+      triggerInstrument(trackId);
+    }
     triggerTutorialStep(2);
   };
 
@@ -654,9 +789,43 @@ export default function RhythmMachine() {
           <h1 className="text-base sm:text-lg font-black tracking-wide text-zinc-100">
             Rythm Machine
           </h1>
-          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700">
-            7 Tracks
-          </span>
+          {/* トラック数バッジ ＆ カスタムトラック増減クイック操作 */}
+          <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 rounded-lg px-1.5 py-0.5 text-xs">
+            <span className="text-[10px] font-bold text-zinc-400">
+              {BUILTIN_TRACKS.length + activeCustomTrackIds.length} Tracks
+              {activeCustomTrackIds.length > 0 && (
+                <span className="text-fuchsia-400 ml-1 font-semibold">
+                  (+{activeCustomTrackIds.length})
+                </span>
+              )}
+            </span>
+            {activeCustomTrackIds.length < CUSTOM_TRACK_IDS.length && (
+              <button
+                type="button"
+                onClick={handleAddCustomTrack}
+                className="w-4 h-4 flex items-center justify-center rounded bg-zinc-900 hover:bg-zinc-800 text-fuchsia-400 hover:text-fuchsia-300 font-extrabold text-[11px] transition-colors cursor-pointer select-none ml-0.5"
+                title={`カスタムトラックを追加 (${activeCustomTrackIds.length}/${CUSTOM_TRACK_IDS.length})`}
+                aria-label="カスタムトラックを追加"
+              >
+                ＋
+              </button>
+            )}
+            {activeCustomTrackIds.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  handleRemoveCustomTrack(
+                    activeCustomTrackIds[activeCustomTrackIds.length - 1]
+                  )
+                }
+                className="w-4 h-4 flex items-center justify-center rounded bg-zinc-900 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-400 font-extrabold text-[11px] transition-colors cursor-pointer select-none"
+                title="末尾のカスタムトラックを削除"
+                aria-label="末尾のカスタムトラックを削除"
+              >
+                ー
+              </button>
+            )}
+          </div>
 
           {/* 拍子変更ボタン＆ポップオーバーメニュー */}
           <div className="relative" ref={timeSigMenuRef}>
@@ -889,28 +1058,62 @@ export default function RhythmMachine() {
 
       {/* ステップシーケンサーグリッド（拍子に応じた拍グループ分割 ＆ ポリメーター表示） */}
       <div className="flex flex-col gap-1 w-full">
-        {TRACKS.map((track) => {
+        {[
+          ...BUILTIN_TRACKS,
+          ...activeCustomTrackIds.map((id) => CUSTOM_TRACK_CONFIGS[id]),
+        ].map((track, trackIndex) => {
           let stepCounter = 0;
           const trackLen = trackLengths[track.id] ?? totalSteps;
           const currentTrackPlayStep = getTrackStepIndex(globalStep, trackLen);
+          const isCustomTrack = CUSTOM_TRACK_IDS.includes(track.id as CustomTrackId);
 
           return (
             <div key={track.id} className="flex items-center gap-2 w-full">
               {/* トラック名ラベル＆ステップ長コントローラー (Polymeter) & クイックフィル */}
-              <div className="w-36 sm:w-44 shrink-0 flex items-center justify-between gap-1 relative">
-                <button
-                  type="button"
-                  onClick={() => triggerInstrument(track.id)}
-                  className="flex-1 min-w-0 flex items-center justify-between px-1.5 py-0.5 rounded hover:bg-zinc-800/80 transition-colors text-left cursor-pointer group"
-                  title="クリックして試聴"
-                >
-                  <span className={`text-xs font-bold truncate group-hover:brightness-125 ${track.badgeColor}`}>
-                    {track.name}
-                  </span>
-                  <span className="text-[10px] text-zinc-500 font-semibold group-hover:text-zinc-300 ml-1">
-                    {track.shortName}
-                  </span>
-                </button>
+              <div className="w-40 sm:w-48 shrink-0 flex items-center justify-between gap-1 relative">
+                {isCustomTrack ? (
+                  <div className="flex-1 min-w-0 pr-0.5">
+                    <CustomTrackControl
+                      customSample={customSamples[track.id as CustomTrackId]}
+                      onSampleLoaded={(newState) =>
+                        setCustomSamples((prev) => ({
+                          ...prev,
+                          [track.id]: newState,
+                        }))
+                      }
+                      onSampleCleared={() =>
+                        setCustomSamples((prev) => ({
+                          ...prev,
+                          [track.id]: {
+                            buffer: null,
+                            fileName: null,
+                            displayName: track.name,
+                          },
+                        }))
+                      }
+                      onDeleteTrack={() =>
+                        handleRemoveCustomTrack(track.id as CustomTrackId)
+                      }
+                      getAudioContext={getAudioContext}
+                      trackLabel={track.name}
+                      badgeColor={track.badgeColor}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => triggerInstrument(track.id)}
+                    className="flex-1 min-w-0 flex items-center justify-between px-1.5 py-0.5 rounded hover:bg-zinc-800/80 transition-colors text-left cursor-pointer group"
+                    title="クリックして試聴"
+                  >
+                    <span className={`text-xs font-bold truncate group-hover:brightness-125 ${track.badgeColor}`}>
+                      {track.name}
+                    </span>
+                    <span className="text-[10px] text-zinc-500 font-semibold group-hover:text-zinc-300 ml-1">
+                      {track.shortName}
+                    </span>
+                  </button>
+                )}
 
                 {/* ステップ長 +/- コントロール */}
                 <div
@@ -949,7 +1152,7 @@ export default function RhythmMachine() {
                 >
                   <button
                     type="button"
-                    onClick={() => setOpenFillTrackId(openFillTrackId === track.id ? null : track.id)}
+                    onClick={(e) => handleToggleFillMenu(track.id, e)}
                     className={`px-1.5 py-0.5 text-[10px] font-bold rounded border transition-all flex items-center gap-0.5 cursor-pointer select-none ${openFillTrackId === track.id
                       ? "bg-amber-400 text-zinc-950 border-amber-300 shadow-sm"
                       : "bg-zinc-950/90 text-zinc-400 hover:text-amber-300 border-zinc-800 hover:border-zinc-700"
@@ -957,11 +1160,21 @@ export default function RhythmMachine() {
                     title={`${track.name} のステップを一括配置（4分・8分・16分）`}
                   >
                     <span>Fill</span>
-                    <span className="text-[8px] opacity-70">▾</span>
+                    <span className="text-[8px] opacity-70">
+                      {openFillTrackId === track.id
+                        ? fillMenuPlacement === "top"
+                          ? "▴"
+                          : "▾"
+                        : "▾"}
+                    </span>
                   </button>
 
                   {openFillTrackId === track.id && (
-                    <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1 z-50 bg-zinc-900 border border-zinc-700/80 rounded-lg p-1.5 shadow-2xl shadow-black min-w-[136px] flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100">
+                    <div
+                      className={`absolute left-0 sm:left-auto sm:right-0 ${
+                        fillMenuPlacement === "top" ? "bottom-full mb-1" : "top-full mt-1"
+                      } z-50 bg-zinc-900 border border-zinc-700/80 rounded-lg p-1.5 shadow-2xl shadow-black min-w-[136px] max-h-[min(280px,80vh)] overflow-y-auto flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100`}
+                    >
                       <div className="text-[9px] font-bold text-zinc-400 px-1.5 py-0.5 uppercase tracking-wider border-b border-zinc-800/80 flex items-center justify-between">
                         <span className={track.badgeColor}>{track.name}</span>
                         <span className="text-amber-400 font-mono">Bar {activeBar + 1}</span>
@@ -1122,6 +1335,37 @@ export default function RhythmMachine() {
             </div>
           );
         })}
+
+        {/* カスタムトラック数 調整コントロール */}
+        <div className="pt-2 flex flex-wrap items-center gap-2">
+          {activeCustomTrackIds.length < CUSTOM_TRACK_IDS.length && (
+            <button
+              type="button"
+              onClick={handleAddCustomTrack}
+              className="px-2.5 py-1 rounded-lg border border-dashed border-zinc-700/80 hover:border-fuchsia-400 bg-zinc-950/40 hover:bg-zinc-800 text-[11px] font-bold text-zinc-300 hover:text-fuchsia-300 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm select-none"
+              title="新しいカスタムサンプラートラックを追加"
+            >
+              <span className="text-sm font-extrabold text-fuchsia-400">＋</span>
+              <span>カスタムトラックを追加 ({activeCustomTrackIds.length}/{CUSTOM_TRACK_IDS.length})</span>
+            </button>
+          )}
+
+          {activeCustomTrackIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                handleRemoveCustomTrack(
+                  activeCustomTrackIds[activeCustomTrackIds.length - 1]
+                )
+              }
+              className="px-2.5 py-1 rounded-lg border border-zinc-800 hover:border-rose-500/60 bg-zinc-950/40 hover:bg-rose-950/30 text-[11px] font-bold text-zinc-400 hover:text-rose-300 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm select-none"
+              title="末尾のカスタムトラックを削除"
+            >
+              <span className="text-sm font-extrabold text-rose-400">ー</span>
+              <span>トラックを減らす ({activeCustomTrackIds.length})</span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
