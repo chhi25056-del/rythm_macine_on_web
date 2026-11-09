@@ -33,11 +33,10 @@ export function PatternTutorialMenu({
   const activeConfig = activeType ? PATTERN_TUTORIAL_CONFIGS[activeType] : null;
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative shrink-0" ref={menuRef}>
       {activeType ? (
-        <div className="flex items-center gap-1 bg-amber-400 text-zinc-950 font-bold px-2 py-1 rounded-lg text-xs shadow-md border border-amber-300 animate-pulse">
-          <span className="flex items-center gap-1">
-            <span>🥁</span>
+        <div className="flex items-center gap-1 bg-amber-400 text-zinc-950 font-bold px-2 py-1 rounded-lg text-xs whitespace-nowrap shadow-md border border-amber-300 animate-pulse">
+          <span className="flex items-center gap-1 text-[11px] sm:text-xs">
             <span className="truncate max-w-[90px] sm:max-w-none">
               学習中: {activeConfig?.name}
             </span>
@@ -56,14 +55,13 @@ export function PatternTutorialMenu({
         <button
           type="button"
           onClick={() => setIsOpen((prev) => !prev)}
-          className="px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border bg-zinc-950 hover:bg-zinc-800 border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-amber-400"
+          className="px-2 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1 cursor-pointer border bg-zinc-950 hover:bg-zinc-800 border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-amber-400"
           title="リズムパターン学習メニューを開く"
           aria-expanded={isOpen}
           aria-haspopup="true"
         >
-          <span>🥁</span>
-          <span className="hidden sm:inline">リズムパターン学習</span>
-          <span className="sm:hidden">パターン</span>
+          <span className="text-xs">🥁</span>
+          <span className="text-[11px] sm:text-xs whitespace-nowrap">リズムパターン学習</span>
           <span className="text-[9px] opacity-70">▾</span>
         </button>
       )}

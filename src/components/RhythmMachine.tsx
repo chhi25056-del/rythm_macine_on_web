@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   type TrackId,
+  type BuiltinTrackId,
   type Pattern,
   type MeasureCount,
   type TimeSignature,
@@ -30,6 +31,7 @@ import { TutorialSpotlight } from "@/components/TutorialSpotlight";
 import { usePatternTutorial } from "@/hooks/usePatternTutorial";
 import { PatternTutorialMenu } from "@/components/PatternTutorialMenu";
 import { PatternTutorialGuide } from "@/components/PatternTutorialGuide";
+import { ExportMenu } from "@/components/ExportMenu";
 import {
   type PatternTutorialType,
   PATTERN_TUTORIAL_CONFIGS,
@@ -42,6 +44,7 @@ import {
   stopPreviousAudioBuffer,
   type CustomSampleState,
 } from "@/lib/customAudio";
+import { createNoiseBuffer, playBuiltinTrack } from "@/lib/synthAudio";
 
 interface TrackDisplayConfig {
   id: TrackId;
@@ -159,6 +162,11 @@ export default function RhythmMachine() {
   const [openFillTrackId, setOpenFillTrackId] = useState<TrackId | null>(null);
   const [fillMenuPlacement, setFillMenuPlacement] = useState<"top" | "bottom">("bottom");
 
+  // トラックごとのステップ長（ポリメーター対応: 1〜32）
+  const [trackLengths, setTrackLengths] = useState<TrackLengths>(() =>
+    createDefaultTrackLengths(TIME_SIGNATURE_CONFIGS["4/4"].stepsPerBar)
+  );
+
   // チュートリアル状態管理
   const {
     tutorialStep,
@@ -215,11 +223,6 @@ export default function RhythmMachine() {
   const remainingPatternStepsCount = patternTutorial.currentStepConfig
     ? getRemainingTargetSteps(patternTutorial.currentStepConfig, pattern).length
     : 0;
-
-  // トラックごとのステップ長（ポリメーター対応: 1〜32）
-  const [trackLengths, setTrackLengths] = useState<TrackLengths>(() =>
-    createDefaultTrackLengths(TIME_SIGNATURE_CONFIGS["4/4"].stepsPerBar)
-  );
 
   // ユーザーが調整可能なカスタムトラック一覧（初期値: 1トラック、最大4トラック）
   const [activeCustomTrackIds, setActiveCustomTrackIds] = useState<CustomTrackId[]>(["custom1"]);
@@ -349,246 +352,35 @@ export default function RhythmMachine() {
 
   const getNoiseBuffer = useCallback((ctx: AudioContext): AudioBuffer => {
     if (noiseBufferRef.current) return noiseBufferRef.current;
-    const bufferSize = ctx.sampleRate * 2;
-    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
+    const buffer = createNoiseBuffer(ctx, 2);
     noiseBufferRef.current = buffer;
     return buffer;
   }, []);
 
-  const playKick = useCallback((ctx: AudioContext, time: number) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.frequency.setValueAtTime(150, time);
-    osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.15);
-
-    gain.gain.setValueAtTime(1.0, time);
-    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.15);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(time);
-    osc.stop(time + 0.15);
-  }, []);
-
-  const playSnare = useCallback((ctx: AudioContext, time: number) => {
-    const osc = ctx.createOscillator();
-    const oscGain = ctx.createGain();
-    osc.type = "triangle";
-    osc.frequency.setValueAtTime(180, time);
-    osc.frequency.exponentialRampToValueAtTime(40, time + 0.1);
-
-    oscGain.gain.setValueAtTime(0.7, time);
-    oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
-
-    osc.connect(oscGain);
-    oscGain.connect(ctx.destination);
-    osc.start(time);
-    osc.stop(time + 0.1);
-
-    const noise = ctx.createBufferSource();
-    noise.buffer = getNoiseBuffer(ctx);
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = "highpass";
-    filter.frequency.setValueAtTime(1200, time);
-
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.7, time);
-    noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.18);
-
-    noise.connect(filter);
-    filter.connect(noiseGain);
-    noiseGain.connect(ctx.destination);
-
-    noise.start(time);
-    noise.stop(time + 0.18);
-  }, [getNoiseBuffer]);
-
-  const playClosedHiHat = useCallback((ctx: AudioContext, time: number) => {
-    const noise = ctx.createBufferSource();
-    noise.buffer = getNoiseBuffer(ctx);
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = "highpass";
-    filter.frequency.setValueAtTime(7500, time);
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.5, time);
-    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-
-    noise.start(time);
-    noise.stop(time + 0.05);
-  }, [getNoiseBuffer]);
-
-  /**
-   * オープンハイハットの発音
-   * ホワイトノイズに6.5kHzのハイパスフィルタを適用し、
-   * 0.35秒の長めのエンベロープで減衰させて「シャーン」という伸びのあるシンバル音を作ります。
-   */
-  const playOpenHiHat = useCallback((ctx: AudioContext, time: number) => {
-    const noise = ctx.createBufferSource();
-    noise.buffer = getNoiseBuffer(ctx);
-
-    const filter = ctx.createBiquadFilter();
-    filter.type = "highpass";
-    filter.frequency.setValueAtTime(6500, time);
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.5, time);
-    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.35);
-
-    noise.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-
-    noise.start(time);
-    noise.stop(time + 0.35);
-  }, [getNoiseBuffer]);
-
-  const playHiTom = useCallback((ctx: AudioContext, time: number) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(210, time);
-    osc.frequency.exponentialRampToValueAtTime(90, time + 0.22);
-
-    gain.gain.setValueAtTime(0.85, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.22);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(time);
-    osc.stop(time + 0.22);
-
-    const click = ctx.createOscillator();
-    const clickGain = ctx.createGain();
-    click.type = "triangle";
-    click.frequency.setValueAtTime(450, time);
-    click.frequency.exponentialRampToValueAtTime(120, time + 0.02);
-    clickGain.gain.setValueAtTime(0.4, time);
-    clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.02);
-    click.connect(clickGain);
-    clickGain.connect(ctx.destination);
-    click.start(time);
-    click.stop(time + 0.02);
-  }, []);
-
-  const playLowTom = useCallback((ctx: AudioContext, time: number) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(150, time);
-    osc.frequency.exponentialRampToValueAtTime(65, time + 0.28);
-
-    gain.gain.setValueAtTime(0.85, time);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.28);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(time);
-    osc.stop(time + 0.28);
-
-    const click = ctx.createOscillator();
-    const clickGain = ctx.createGain();
-    click.type = "triangle";
-    click.frequency.setValueAtTime(320, time);
-    click.frequency.exponentialRampToValueAtTime(80, time + 0.025);
-    clickGain.gain.setValueAtTime(0.35, time);
-    clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.025);
-    click.connect(clickGain);
-    clickGain.connect(ctx.destination);
-    click.start(time);
-    click.stop(time + 0.025);
-  }, []);
-
-  /**
-   * クラッシュシンバルの発音
-   * ハイハットに近い高域のクリスプなホワイトノイズをベースに設計。
-   * トライアングル波オシレーターによる濁りを排し、オープンハイハットと同系統の
-   * 高域ハイパスフィルタ（6200Hz）となめらかなサステインエンベロープで、
-   * ハイハットと統一感のある明るく抜けの良いシンバル音を生成します。
-   */
-  const playCrash = useCallback((ctx: AudioContext, time: number) => {
-    const noise = ctx.createBufferSource();
-    noise.buffer = getNoiseBuffer(ctx);
-
-    const highpass = ctx.createBiquadFilter();
-    highpass.type = "highpass";
-    highpass.frequency.setValueAtTime(6200, time);
-
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.6, time);
-    gain.gain.exponentialRampToValueAtTime(0.005, time + 0.9);
-
-    noise.connect(highpass);
-    highpass.connect(gain);
-    gain.connect(ctx.destination);
-
-    noise.start(time);
-    noise.stop(time + 0.9);
-  }, [getNoiseBuffer]);
-
   const playInstrument = useCallback(
     (trackId: TrackId, ctx: AudioContext, time: number) => {
-      switch (trackId) {
-        case "crash":
-          playCrash(ctx, time);
-          break;
-        case "hihatOpen":
-          playOpenHiHat(ctx, time);
-          break;
-        case "hihatClosed":
-          playClosedHiHat(ctx, time);
-          break;
-        case "hiTom":
-          playHiTom(ctx, time);
-          break;
-        case "lowTom":
-          playLowTom(ctx, time);
-          break;
-        case "snare":
-          playSnare(ctx, time);
-          break;
-        case "kick":
-          playKick(ctx, time);
-          break;
-        case "custom1":
-        case "custom2":
-        case "custom3":
-        case "custom4": {
-          const sample = customSamplesRef.current[trackId];
-          if (sample?.buffer) {
-            customSourcesRef.current[trackId] = playAudioBuffer(
-              sample.buffer,
-              ctx,
-              time,
-              0.7,
-              customSourcesRef.current[trackId]
-            );
-          }
-          break;
+      if (CUSTOM_TRACK_IDS.includes(trackId as CustomTrackId)) {
+        const sample = customSamplesRef.current[trackId as CustomTrackId];
+        if (sample?.buffer) {
+          customSourcesRef.current[trackId as CustomTrackId] = playAudioBuffer(
+            sample.buffer,
+            ctx,
+            time,
+            0.7,
+            customSourcesRef.current[trackId as CustomTrackId]
+          );
         }
+      } else {
+        playBuiltinTrack(
+          trackId as BuiltinTrackId,
+          ctx,
+          time,
+          getNoiseBuffer(ctx),
+          ctx.destination
+        );
       }
     },
-    [
-      playCrash,
-      playOpenHiHat,
-      playClosedHiHat,
-      playHiTom,
-      playLowTom,
-      playSnare,
-      playKick,
-    ]
+    [getNoiseBuffer]
   );
 
   const triggerInstrument = useCallback(
@@ -877,15 +669,15 @@ export default function RhythmMachine() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           {/* 小節数セレクタ */}
-          <div className="flex items-center bg-zinc-950 border border-zinc-800 p-0.5 rounded-lg text-xs">
-            <span className="text-[10px] font-semibold text-zinc-500 px-1.5">ループ:</span>
+          <div className="flex items-center bg-zinc-950 border border-zinc-800 p-0.5 rounded-lg text-xs shrink-0">
+            <span className="text-[10px] font-semibold text-zinc-500 px-1 whitespace-nowrap">ループ:</span>
             {([1, 2, 4] as MeasureCount[]).map((m) => (
               <button
                 key={m}
                 onClick={() => handleMeasureChange(m)}
-                className={`px-2 py-0.5 rounded font-bold transition-all cursor-pointer ${bars === m
+                className={`px-1.5 py-0.5 rounded font-bold text-[11px] whitespace-nowrap transition-all cursor-pointer ${bars === m
                   ? "bg-amber-400 text-zinc-950"
                   : "text-zinc-400 hover:text-white"
                   }`}
@@ -899,10 +691,10 @@ export default function RhythmMachine() {
           {/* BPM */}
           <div
             id="tutorial-target-bpm"
-            className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 px-2 py-1 rounded-lg transition-all"
+            className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 px-1.5 py-1 rounded-lg transition-all shrink-0"
           >
-            <span className="text-[10px] font-bold text-zinc-500">BPM</span>
-            <span className="font-mono font-bold text-xs text-amber-400 w-7 text-right tabular-nums">
+            <span className="text-[10px] font-bold text-zinc-500 whitespace-nowrap">BPM</span>
+            <span className="font-mono font-bold text-xs text-amber-400 w-6 text-right tabular-nums">
               {bpm}
             </span>
             <input
@@ -911,7 +703,7 @@ export default function RhythmMachine() {
               max="200"
               value={bpm}
               onChange={handleBpmChange}
-              className="w-14 sm:w-20 accent-amber-400 cursor-pointer h-1 bg-zinc-800 rounded appearance-none"
+              className="w-12 sm:w-16 accent-amber-400 cursor-pointer h-1 bg-zinc-800 rounded appearance-none"
               aria-label="BPM Slider"
             />
           </div>
@@ -920,7 +712,7 @@ export default function RhythmMachine() {
           <button
             id="tutorial-target-play"
             onClick={togglePlay}
-            className={`px-4 py-1 rounded-lg font-bold tracking-wide transition-all shadow text-xs flex items-center gap-1.5 cursor-pointer ${isPlaying
+            className={`px-3 py-1 rounded-lg font-bold tracking-wide transition-all shadow text-xs whitespace-nowrap flex items-center gap-1.5 cursor-pointer shrink-0 ${isPlaying
               ? "bg-amber-500 hover:bg-amber-600 text-zinc-950"
               : "bg-emerald-500 hover:bg-emerald-600 text-white"
               }`}
@@ -933,15 +725,14 @@ export default function RhythmMachine() {
           <button
             type="button"
             onClick={tutorialStep !== null ? skipTutorial : handleStartBasicTutorial}
-            className={`px-2 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 cursor-pointer border ${
-              tutorialStep !== null
+            className={`px-2 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1 cursor-pointer border shrink-0 ${tutorialStep !== null
                 ? "bg-amber-400 text-zinc-950 border-amber-300 shadow-sm"
                 : "bg-zinc-950 hover:bg-zinc-800 border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-amber-400"
-            }`}
+              }`}
             title={tutorialStep !== null ? "チュートリアルを終了する" : "チュートリアルを開始する"}
           >
-            <span>💡</span>
-            <span className="hidden sm:inline">
+            <span className="text-xs">💡</span>
+            <span className="text-[11px] sm:text-xs whitespace-nowrap">
               {tutorialStep !== null ? "チュートリアル中" : "チュートリアル"}
             </span>
           </button>
@@ -951,6 +742,16 @@ export default function RhythmMachine() {
             activeType={patternTutorial.activeType}
             onSelectPattern={handleStartPatternTutorial}
             onStopPattern={patternTutorial.stopTutorial}
+          />
+
+          {/* WAV / MIDI エクスポートメニュー */}
+          <ExportMenu
+            pattern={pattern}
+            trackLengths={trackLengths}
+            bpm={bpm}
+            bars={bars}
+            timeSignature={timeSignature}
+            customSamples={customSamples}
           />
         </div>
       </div>
@@ -1061,7 +862,7 @@ export default function RhythmMachine() {
         {[
           ...BUILTIN_TRACKS,
           ...activeCustomTrackIds.map((id) => CUSTOM_TRACK_CONFIGS[id]),
-        ].map((track, trackIndex) => {
+        ].map((track) => {
           let stepCounter = 0;
           const trackLen = trackLengths[track.id] ?? totalSteps;
           const currentTrackPlayStep = getTrackStepIndex(globalStep, trackLen);
@@ -1171,9 +972,8 @@ export default function RhythmMachine() {
 
                   {openFillTrackId === track.id && (
                     <div
-                      className={`absolute left-0 sm:left-auto sm:right-0 ${
-                        fillMenuPlacement === "top" ? "bottom-full mb-1" : "top-full mt-1"
-                      } z-50 bg-zinc-900 border border-zinc-700/80 rounded-lg p-1.5 shadow-2xl shadow-black min-w-[136px] max-h-[min(280px,80vh)] overflow-y-auto flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100`}
+                      className={`absolute left-0 sm:left-auto sm:right-0 ${fillMenuPlacement === "top" ? "bottom-full mb-1" : "top-full mt-1"
+                        } z-50 bg-zinc-900 border border-zinc-700/80 rounded-lg p-1.5 shadow-2xl shadow-black min-w-[136px] max-h-[min(280px,80vh)] overflow-y-auto flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100`}
                     >
                       <div className="text-[9px] font-bold text-zinc-400 px-1.5 py-0.5 uppercase tracking-wider border-b border-zinc-800/80 flex items-center justify-between">
                         <span className={track.badgeColor}>{track.name}</span>
@@ -1299,31 +1099,28 @@ export default function RhythmMachine() {
                             id={track.id === "kick" && stepInBar === 0 ? "tutorial-target-step" : undefined}
                             type="button"
                             onClick={() => toggleStep(track.id, absoluteStep)}
-                            className={`w-full h-7 sm:h-8 rounded transition-all border flex items-center justify-center select-none cursor-pointer ${
-                              on
+                            className={`w-full h-7 sm:h-8 rounded transition-all border flex items-center justify-center select-none cursor-pointer ${on
                                 ? track.activeClasses
                                 : isPatternTarget
-                                ? "bg-amber-950/40 border-amber-400 ring-2 ring-amber-400/70 shadow-lg shadow-amber-400/20 animate-pulse"
-                                : isDownbeat
-                                ? "bg-zinc-800/90 border-zinc-700 hover:border-zinc-500"
-                                : "bg-zinc-900 border-zinc-800/90 hover:border-zinc-600"
-                            } ${
-                              isCurrent
+                                  ? "bg-amber-950/40 border-amber-400 ring-2 ring-amber-400/70 shadow-lg shadow-amber-400/20 animate-pulse"
+                                  : isDownbeat
+                                    ? "bg-zinc-800/90 border-zinc-700 hover:border-zinc-500"
+                                    : "bg-zinc-900 border-zinc-800/90 hover:border-zinc-600"
+                              } ${isCurrent
                                 ? "ring-2 ring-amber-400 scale-105 z-10 brightness-125 shadow shadow-amber-400/40"
                                 : ""
-                            }`}
+                              }`}
                             aria-label={`${track.name} Bar ${activeBar + 1} Step ${stepInBar + 1}`}
                           >
                             <span
-                              className={`w-1.5 h-1.5 rounded-full transition-all ${
-                                on
+                              className={`w-1.5 h-1.5 rounded-full transition-all ${on
                                   ? track.dotClasses
                                   : isPatternTarget
-                                  ? "bg-amber-400 scale-125 animate-ping"
-                                  : isDownbeat
-                                  ? "bg-zinc-600/70"
-                                  : "bg-zinc-700/40"
-                              }`}
+                                    ? "bg-amber-400 scale-125 animate-ping"
+                                    : isDownbeat
+                                      ? "bg-zinc-600/70"
+                                      : "bg-zinc-700/40"
+                                }`}
                             />
                           </button>
                         );
