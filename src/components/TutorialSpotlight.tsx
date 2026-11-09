@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { TutorialStepConfig } from "@/lib/tutorial";
 
@@ -29,13 +29,17 @@ export function TutorialSpotlight({
   onSkip,
   onDismiss,
 }: TutorialSpotlightProps) {
-  const [mounted, setMounted] = useState<boolean>(false);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
-  const [windowSize, setWindowSize] = useState({ width: 1200, height: 800 });
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const [windowSize, setWindowSize] = useState(() =>
+    typeof window !== "undefined"
+      ? { width: window.innerWidth, height: window.innerHeight }
+      : { width: 1200, height: 800 }
+  );
 
   // ターゲット要素のサイズと位置を測定
   const updateRect = useCallback(() => {
@@ -62,7 +66,6 @@ export function TutorialSpotlight({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setWindowSize({ width: window.innerWidth, height: window.innerHeight });
 
     const handleResize = () => {
       setWindowSize({ width: window.innerWidth, height: window.innerHeight });
@@ -77,10 +80,11 @@ export function TutorialSpotlight({
     window.addEventListener("scroll", handleScroll, true);
 
     // 要素マウント直後および数フレーム遅延して正確に測定
-    updateRect();
+    const rafId = requestAnimationFrame(updateRect);
     const timer = setTimeout(updateRect, 100);
 
     return () => {
+      cancelAnimationFrame(rafId);
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("scroll", handleScroll, true);
       clearTimeout(timer);

@@ -325,6 +325,49 @@ export function copyBarPattern(
 }
 
 /**
+ * 小節数を増やした際に、既存小節のパターンを新しく追加された小節へループ複製した新しいパターンを返します。
+ * - 2小節 → 4小節: 1〜2小節目を 3〜4小節目にコピー（Bar 0 → Bar 2, Bar 1 → Bar 3）
+ * - 1小節 → 2小節: 1小節目を 2小節目にコピー（Bar 0 → Bar 1）
+ * - 1小節 → 4小節: 1小節目を 2〜4小節目にコピー（Bar 0 → Bar 1, 2, 3）
+ *
+ * @param pattern 現在のパターン
+ * @param fromBars 変更前の小節数
+ * @param toBars 変更後の小節数
+ * @param stepsPerBar 1小節あたりのステップ数
+ */
+export function expandPatternMeasures(
+  pattern: Pattern,
+  fromBars: MeasureCount,
+  toBars: MeasureCount,
+  stepsPerBar: number = 16
+): Pattern {
+  if (toBars <= fromBars) return pattern;
+
+  const newPattern: Pattern = { ...pattern };
+  const trackIds = Object.keys(pattern) as TrackId[];
+
+  trackIds.forEach((trackId) => {
+    const trackSteps = [...pattern[trackId]];
+    for (let targetBar = fromBars; targetBar < toBars; targetBar++) {
+      const sourceBar = targetBar % fromBars;
+      const sourceStart = sourceBar * stepsPerBar;
+      const targetStart = targetBar * stepsPerBar;
+
+      for (let i = 0; i < stepsPerBar; i++) {
+        const sourceStep = sourceStart + i;
+        const targetStep = targetStart + i;
+        if (targetStep < trackSteps.length && sourceStep < trackSteps.length) {
+          trackSteps[targetStep] = trackSteps[sourceStep];
+        }
+      }
+    }
+    newPattern[trackId] = trackSteps;
+  });
+
+  return newPattern;
+}
+
+/**
  * 現在のステップ番号から次のステップ番号を計算します。終端に達した場合は0に戻ります。
  */
 export function getNextStep(currentStep: number, totalSteps: number = 16): number {

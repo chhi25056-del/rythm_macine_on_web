@@ -60,7 +60,6 @@ export function PatternTutorialMenu({
           aria-expanded={isOpen}
           aria-haspopup="true"
         >
-          <span className="text-xs">🥁</span>
           <span className="text-[11px] sm:text-xs whitespace-nowrap">リズムパターン学習</span>
           <span className="text-[9px] opacity-70">▾</span>
         </button>

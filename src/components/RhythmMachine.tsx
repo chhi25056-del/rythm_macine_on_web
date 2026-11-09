@@ -20,6 +20,7 @@ import {
   shouldTriggerTrack,
   togglePatternStep,
   copyBarPattern,
+  expandPatternMeasures,
   fillTrackPattern,
   CUSTOM_TRACK_IDS,
   type CustomTrackId,
@@ -469,13 +470,23 @@ export default function RhythmMachine() {
   };
 
   const handleMeasureChange = (newBars: MeasureCount) => {
+    const oldBars = bars;
     setBars(newBars);
     if (activeBar >= newBars) {
       setActiveBar(0);
     }
+
+    // 小節数を増やした際に、既存小節のパターンを追加された小節へ自動的にループ複製
+    // （2小節→4小節: 1〜2小節目を3〜4小節目にコピー、1小節→2/4小節: 1小節目を追加小節にコピー）
+    if (newBars > oldBars) {
+      setPattern((prev) =>
+        expandPatternMeasures(prev, oldBars, newBars, stepsPerBar)
+      );
+    }
+
     const newTotalSteps = newBars * stepsPerBar;
     setTrackLengths((prev) => {
-      const oldTotalSteps = bars * stepsPerBar;
+      const oldTotalSteps = oldBars * stepsPerBar;
       const next = { ...prev };
       (Object.keys(next) as TrackId[]).forEach((id) => {
         if (next[id] === oldTotalSteps || next[id] > newTotalSteps) {
@@ -726,12 +737,11 @@ export default function RhythmMachine() {
             type="button"
             onClick={tutorialStep !== null ? skipTutorial : handleStartBasicTutorial}
             className={`px-2 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1 cursor-pointer border shrink-0 ${tutorialStep !== null
-                ? "bg-amber-400 text-zinc-950 border-amber-300 shadow-sm"
-                : "bg-zinc-950 hover:bg-zinc-800 border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-amber-400"
+              ? "bg-amber-400 text-zinc-950 border-amber-300 shadow-sm"
+              : "bg-zinc-950 hover:bg-zinc-800 border-zinc-800 hover:border-zinc-700 text-zinc-300 hover:text-amber-400"
               }`}
             title={tutorialStep !== null ? "チュートリアルを終了する" : "チュートリアルを開始する"}
           >
-            <span className="text-xs">💡</span>
             <span className="text-[11px] sm:text-xs whitespace-nowrap">
               {tutorialStep !== null ? "チュートリアル中" : "チュートリアル"}
             </span>
@@ -1100,12 +1110,12 @@ export default function RhythmMachine() {
                             type="button"
                             onClick={() => toggleStep(track.id, absoluteStep)}
                             className={`w-full h-7 sm:h-8 rounded transition-all border flex items-center justify-center select-none cursor-pointer ${on
-                                ? track.activeClasses
-                                : isPatternTarget
-                                  ? "bg-amber-950/40 border-amber-400 ring-2 ring-amber-400/70 shadow-lg shadow-amber-400/20 animate-pulse"
-                                  : isDownbeat
-                                    ? "bg-zinc-800/90 border-zinc-700 hover:border-zinc-500"
-                                    : "bg-zinc-900 border-zinc-800/90 hover:border-zinc-600"
+                              ? track.activeClasses
+                              : isPatternTarget
+                                ? "bg-amber-950/40 border-amber-400 ring-2 ring-amber-400/70 shadow-lg shadow-amber-400/20 animate-pulse"
+                                : isDownbeat
+                                  ? "bg-zinc-800/90 border-zinc-700 hover:border-zinc-500"
+                                  : "bg-zinc-900 border-zinc-800/90 hover:border-zinc-600"
                               } ${isCurrent
                                 ? "ring-2 ring-amber-400 scale-105 z-10 brightness-125 shadow shadow-amber-400/40"
                                 : ""
@@ -1114,12 +1124,12 @@ export default function RhythmMachine() {
                           >
                             <span
                               className={`w-1.5 h-1.5 rounded-full transition-all ${on
-                                  ? track.dotClasses
-                                  : isPatternTarget
-                                    ? "bg-amber-400 scale-125 animate-ping"
-                                    : isDownbeat
-                                      ? "bg-zinc-600/70"
-                                      : "bg-zinc-700/40"
+                                ? track.dotClasses
+                                : isPatternTarget
+                                  ? "bg-amber-400 scale-125 animate-ping"
+                                  : isDownbeat
+                                    ? "bg-zinc-600/70"
+                                    : "bg-zinc-700/40"
                                 }`}
                             />
                           </button>

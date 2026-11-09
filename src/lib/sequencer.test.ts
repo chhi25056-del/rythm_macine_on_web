@@ -15,6 +15,7 @@ import {
   isStepActiveForTrack,
   shouldTriggerTrack,
   fillTrackPattern,
+  expandPatternMeasures,
 } from "./sequencer";
 
 describe("sequencer", () => {
@@ -341,6 +342,103 @@ describe("sequencer", () => {
       expect(filled.kick[8]).toBe(true);
       // 12は10を超えているためfalse
       expect(filled.kick[12]).toBe(false);
+    });
+  });
+
+  describe("expandPatternMeasures", () => {
+    it("should copy bars 0-1 to bars 2-3 when expanding from 2 to 4 bars", () => {
+      const pattern = createEmptyPattern(80);
+      // Bar 0 (0..15): キックを step 0, 4 に配置
+      pattern.kick[0] = true;
+      pattern.kick[4] = true;
+      // Bar 1 (16..31): スネアを step 20 に、ハットを step 18 に配置
+      pattern.snare[20] = true;
+      pattern.hihatClosed[18] = true;
+
+      const expanded = expandPatternMeasures(pattern, 2, 4, 16);
+
+      // 元の Bar 0 と Bar 1 が維持されていること
+      expect(expanded.kick[0]).toBe(true);
+      expect(expanded.kick[4]).toBe(true);
+      expect(expanded.snare[20]).toBe(true);
+      expect(expanded.hihatClosed[18]).toBe(true);
+
+      // Bar 2 (32..47) に Bar 0 が複製されていること
+      expect(expanded.kick[32]).toBe(true);
+      expect(expanded.kick[36]).toBe(true);
+      expect(expanded.kick[33]).toBe(false);
+
+      // Bar 3 (48..63) に Bar 1 が複製されていること
+      expect(expanded.snare[48 + 4]).toBe(true); // 52 = 20 + 32
+      expect(expanded.hihatClosed[48 + 2]).toBe(true); // 50 = 18 + 32
+      expect(expanded.snare[48]).toBe(false);
+    });
+
+    it("should copy bar 0 to bar 1 when expanding from 1 to 2 bars", () => {
+      const pattern = createEmptyPattern(80);
+      pattern.kick[0] = true;
+      pattern.snare[4] = true;
+      pattern.crash[0] = true;
+
+      const expanded = expandPatternMeasures(pattern, 1, 2, 16);
+
+      // Bar 1 (16..31) に Bar 0 が複製されること
+      expect(expanded.kick[16]).toBe(true);
+      expect(expanded.snare[20]).toBe(true);
+      expect(expanded.crash[16]).toBe(true);
+      expect(expanded.kick[17]).toBe(false);
+    });
+
+    it("should copy bar 0 to bars 1, 2, 3 when expanding from 1 to 4 bars", () => {
+      const pattern = createEmptyPattern(80);
+      pattern.kick[0] = true;
+      pattern.snare[4] = true;
+
+      const expanded = expandPatternMeasures(pattern, 1, 4, 16);
+
+      // Bar 1 (16..31)
+      expect(expanded.kick[16]).toBe(true);
+      expect(expanded.snare[20]).toBe(true);
+      // Bar 2 (32..47)
+      expect(expanded.kick[32]).toBe(true);
+      expect(expanded.snare[36]).toBe(true);
+      // Bar 3 (48..63)
+      expect(expanded.kick[48]).toBe(true);
+      expect(expanded.snare[52]).toBe(true);
+    });
+
+    it("should return the original pattern unmodified if toBars <= fromBars", () => {
+      const pattern = createEmptyPattern(80);
+      pattern.kick[0] = true;
+      pattern.kick[16] = true;
+
+      const reduced = expandPatternMeasures(pattern, 4, 2, 16);
+      expect(reduced).toBe(pattern);
+
+      const unchanged = expandPatternMeasures(pattern, 2, 2, 16);
+      expect(unchanged).toBe(pattern);
+    });
+
+    it("should correctly calculate offsets for odd meters (3/4: 12 steps/bar)", () => {
+      const pattern = createEmptyPattern(80);
+      // Bar 0: step 0 にキック, step 4 にスネア
+      pattern.kick[0] = true;
+      pattern.snare[4] = true;
+      // Bar 1: step 12 にキック, step 16 にスネア, step 22 にハイハット
+      pattern.kick[12] = true;
+      pattern.snare[16] = true;
+      pattern.hihatOpen[22] = true;
+
+      const expanded = expandPatternMeasures(pattern, 2, 4, 12);
+
+      // Bar 2 (offset 24 = Bar 0)
+      expect(expanded.kick[24]).toBe(true);
+      expect(expanded.snare[28]).toBe(true);
+
+      // Bar 3 (offset 36 = Bar 1)
+      expect(expanded.kick[36]).toBe(true);
+      expect(expanded.snare[40]).toBe(true);
+      expect(expanded.hihatOpen[46]).toBe(true);
     });
   });
 });
